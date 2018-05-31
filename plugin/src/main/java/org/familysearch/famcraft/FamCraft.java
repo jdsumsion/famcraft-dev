@@ -31,44 +31,43 @@ public class FamCraft extends JavaPlugin implements Listener {
   public void onDisable() {
   }
 
+  long lastWarningMillis = System.currentTimeMillis();
+
   @EventHandler
   public void onPlayerToggleSneakEvent(PlayerToggleSneakEvent e) {
     Player player = e.getPlayer();
-    if (!e.isSneaking() && player.isOnGround()) {
-      String playerPos = formatPos(player.getLocation());
-      List<Block> lastTwoTargetBlocks = player.getLastTwoTargetBlocks(null, 5);
-      Block targetBlock = lastTwoTargetBlocks.get(1);
-      String blockPos = formatPos(targetBlock.getLocation());
-      if (targetBlock.getType().isSolid()) {
-        Block preTargetBlock = lastTwoTargetBlocks.get(0);
-        preTargetBlock.setType(Material.WALL_SIGN);
-        preTargetBlock.getState().setType(Material.WALL_SIGN);
-        Sign sign = (Sign) preTargetBlock.getState();
-        //noinspection deprecation
-        sign.setRawData(faceCode(targetBlock.getFace(preTargetBlock)));
-//        sign.setLine(1, "Clue");
-//        sign.update();
-        player.sendMessage(String.format("player pos %s block pos %s", playerPos, blockPos));
-        player.playSound(player.getLocation(), Sound.ENTITY_ARROW_HIT, SoundCategory.BLOCKS, 100, 1);
-      }
-      else {
-        player.sendMessage(String.format("solid block too far away %s", blockPos));
-      }
+    if (e.isSneaking() || !player.isOnGround()) {
+      return;
     }
-  }
-
-  private byte faceCode(BlockFace face) {
-    switch (face) {
-      case NORTH:
-        return 0x04;
-      case SOUTH:
-        return 0x05;
-      case EAST:
-        return 0x02;
-      case WEST:
-        return 0x03;
-      default:
-        throw new IllegalStateException("unsupported face: " + face.name());
+    Location playerLocation = player.getLocation();
+    List<Block> lastTwoTargetBlocks = player.getLastTwoTargetBlocks(null, 5);
+    Block preTargetBlock = lastTwoTargetBlocks.get(0);
+    Block targetBlock = lastTwoTargetBlocks.get(1);
+    BlockFace face = targetBlock.getFace(preTargetBlock);
+    boolean targetIsSolid = targetBlock.getType().isSolid();
+    boolean targetIsVertical = face != BlockFace.DOWN && face != BlockFace.UP;
+    boolean targetIsVisibleAtEyeLevel = Math.abs(playerLocation.getBlockY() - preTargetBlock.getY()) <= 2;
+    if (targetIsSolid && targetIsVertical && targetIsVisibleAtEyeLevel) {
+      Location preTargetBlockLocation = preTargetBlock.getLocation();
+      preTargetBlock.setType(Material.WALL_SIGN);
+      org.bukkit.material.Sign signMaterial = new org.bukkit.material.Sign(Material.WALL_SIGN);
+      signMaterial.setFacingDirection(face);
+      Sign sign = (Sign) preTargetBlock.getState();
+      sign.setData(signMaterial);
+      sign.setLine(1, "Clue");
+      sign.update(true, false);
+      player.playSound(preTargetBlockLocation, Sound.ENTITY_ARROW_HIT, SoundCategory.BLOCKS, 80, 1);
+      Bukkit.getScheduler().scheduleSyncDelayedTask(this, () -> {
+        preTargetBlock.setType(Material.AIR);
+        player.playSound(preTargetBlockLocation, Sound.BLOCK_CLOTH_BREAK, SoundCategory.BLOCKS, 20, 1);
+      }, 30);
+    }
+    else {
+      lastWarningMillis = System.currentTimeMillis();
+      if (System.currentTimeMillis() - lastWarningMillis > 3_000) {
+        player.sendMessage(ChatColor.GOLD + "Cannot place clue here");
+      }
+      player.playSound(playerLocation, Sound.ENTITY_VILLAGER_NO, SoundCategory.BLOCKS, 20, 1);
     }
   }
 
